@@ -1,0 +1,107 @@
+---
+- name: Configure Linux Instances
+  hosts: all
+  become: true
+  tasks:
+    - name: Disable SELinux (Amazon Linux)
+      selinux:
+        state: disabled
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Disable SELinux (Ubuntu)
+      command: setenforce 0
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Disable Firewalld (Amazon Linux)
+      service:
+        name: firewalld
+        state: stopped
+        enabled: no
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Disable Firewalld (Ubuntu)
+      service:
+        name: ufw
+        state: stopped
+        enabled: no
+      when: ansible_facts['os_family'] == 'Debian'
+
+- name: Configure Frontend (c8.local)
+  hosts: frontend
+  become: true
+  tasks:
+    - name: Install Nginx (Amazon Linux)
+      yum:
+        name: nginx
+        state: present
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Install Nginx (Ubuntu)
+      apt:
+        name: nginx
+        state: present
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Start and enable Nginx service (Amazon Linux)
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Start and enable Nginx service (Ubuntu)
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Configure Nginx to proxy from port 80 to port 19999
+      copy:
+        dest: /etc/nginx/conf.d/proxy.conf
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass http://{{ hostvars['backend'].ansible_host }}:19999;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
+      notify:
+        - Restart Nginx
+
+- name: Configure Backend (u21.local)
+  hosts: backend
+  become: true
+  tasks:
+    - name: Install Netdata (Amazon Linux)
+      yum:
+        name: https://packagecloud.io/netdata/netdata/packages/amazon-linux/2/netdata-1.34.0-1.x86_64.rpm/download.rpm
+        state: present
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Install Netdata (Ubuntu)
+      apt:
+        name: netdata
+        state: present
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Start and enable Netdata service
+      service:
+        name: netdata
+        state: started
+        enabled: yes
+
+- name: Restart Nginx
+  hosts: frontend
+  become: true
+  tasks:
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
